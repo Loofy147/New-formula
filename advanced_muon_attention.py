@@ -11,6 +11,7 @@ class AdvancedMuonAttention(nn.Module):
     This module can be configured for ablation studies to evaluate the impact of each component.
     """
     def __init__(self, d_model, num_heads, use_neural_attention=True, use_rms_norm=True, use_adaptive_temperature=True):
+    def __init__(self, d_model, num_heads):
         super(AdvancedMuonAttention, self).__init__()
         assert d_model % num_heads == 0
         self.d_model = d_model
@@ -33,6 +34,10 @@ class AdvancedMuonAttention(nn.Module):
         self.use_rms_norm = use_rms_norm
         if self.use_rms_norm:
             self.norm = RMSNorm(d_model)
+        self.neural_attention = NeuralAttention(self.d_k)
+        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
+
+        self.norm = RMSNorm(d_model)
 
     def split_heads(self, x):
         batch_size, seq_length, d_model = x.size()
@@ -43,6 +48,7 @@ class AdvancedMuonAttention(nn.Module):
         return x.transpose(1, 2).contiguous().view(batch_size, seq_length, self.d_model)
 
     def forward(self, Q, K, V, mask=None, return_attention=False):
+    def forward(self, Q, K, V, mask=None):
         Q = self.split_heads(self.W_q(Q))
         K = self.split_heads(self.W_k(K))
         V = self.split_heads(self.W_v(V))
@@ -55,6 +61,7 @@ class AdvancedMuonAttention(nn.Module):
         if self.use_adaptive_temperature:
             scores = scores / self.temperature
 
+        scores = self.neural_attention(Q, K) / self.temperature
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
 
@@ -70,3 +77,4 @@ class AdvancedMuonAttention(nn.Module):
             return output, attn
         else:
             return output
+        return self.norm(output)

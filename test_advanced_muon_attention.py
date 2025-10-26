@@ -32,6 +32,7 @@ class TestAdvancedMuonAttention(unittest.TestCase):
         expected_output = x / (rms + 1e-8)
 
         self.assertTrue(torch.allclose(output, expected_output, atol=1e-6))
+        self.assertTrue(torch.allclose(output.norm(2, dim=-1), (d_model**0.5) * torch.ones(x.size(0), x.size(1)), atol=1e-1))
 
     def test_neural_attention(self):
         d_k = 32
