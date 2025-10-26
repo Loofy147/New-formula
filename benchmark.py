@@ -2,10 +2,10 @@
 import time
 import torch
 import torch.nn as nn
-from advanced_muon_attention import AdvancedMuonAttention
 import math
 import requests
 from collections import Counter
+from muon_optimizer import MuonOptimizerFixed
 
 # --- Positional Encoding ---
 class PositionalEncoding(nn.Module):
@@ -25,18 +25,18 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 # ----------------------------------------------------------------------------
-# Model Definitions
+# Model Definition
 # ----------------------------------------------------------------------------
 class TransformerModel(nn.Module):
-    def __init__(self, ntoken, d_model, nhead, d_hid, nlayers, dropout=0.5, attention_module=nn.MultiheadAttention, attention_config={}):
+    def __init__(self, ntoken, d_model, nhead, d_hid, nlayers, dropout=0.5, attention_module=MuonOptimizerFixed):
         super(TransformerModel, self).__init__()
         self.model_type = 'Transformer'
         self.pos_encoder = PositionalEncoding(d_model, dropout)
 
         if attention_module == nn.MultiheadAttention:
-            self.transformer_encoder = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+            self.transformer_encoder = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
         else:
-            self.transformer_encoder = attention_module(d_model, nhead, **attention_config)
+            self.transformer_encoder = attention_module(d_model, nhead)
 
         self.encoder = nn.Embedding(ntoken, d_model)
         self.d_model = d_model
@@ -53,15 +53,14 @@ class TransformerModel(nn.Module):
     def forward(self, src, src_mask=None):
         src = self.encoder(src) * math.sqrt(self.d_model)
         src = self.pos_encoder(src)
+        src = src.permute(1, 0, 2)
 
         if self.attention_module == nn.MultiheadAttention:
             output, _ = self.transformer_encoder(src, src, src, attn_mask=src_mask)
         else:
-            src = src.permute(1, 0, 2)
-            mask_expanded = src_mask.unsqueeze(0).unsqueeze(0) if src_mask is not None else None
-            output = self.transformer_encoder(src, src, src, mask=mask_expanded)
-            output = output.permute(1, 0, 2)
+            output = self.transformer_encoder(src, src, src, mask=src_mask)
 
+        output = output.permute(1, 0, 2)
         output = self.decoder(output)
         return output
 
@@ -131,32 +130,32 @@ def train_and_evaluate(model, train_data, val_data, ntokens, bptt):
     criterion = nn.CrossEntropyLoss()
     lr = 5.0
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    model.train()
-    total_loss = 0.
 
+    model.train()
     for i in range(0, train_data.size(0) - 1, bptt):
         data, targets = get_batch(train_data, i, bptt)
-        if model.attention_module == nn.MultiheadAttention:
+
+        if isinstance(model.transformer_encoder, nn.MultiheadAttention):
             src_mask = generate_square_subsequent_mask(data.size(0))
         else:
-            src_mask = generate_binary_mask(data.size(0))
+            src_mask = generate_binary_mask(data.size(0)).bool()
+
         output = model(data, src_mask)
         loss = criterion(output.view(-1, ntokens), targets)
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
         optimizer.step()
-        total_loss += loss.item()
 
     model.eval()
     total_val_loss = 0.
     with torch.no_grad():
         for i in range(0, val_data.size(0) - 1, bptt):
             data, targets = get_batch(val_data, i, bptt)
-            if model.attention_module == nn.MultiheadAttention:
+            if isinstance(model.transformer_encoder, nn.MultiheadAttention):
                 src_mask = generate_square_subsequent_mask(data.size(0))
             else:
-                src_mask = generate_binary_mask(data.size(0))
+                src_mask = generate_binary_mask(data.size(0)).bool()
             output = model(data, src_mask)
             total_val_loss += len(data) * criterion(output.view(-1, ntokens), targets).item()
 
@@ -176,26 +175,17 @@ def main():
 
     # --- Standard Model ---
     print("--- Training Standard Transformer ---")
-    model_standard = TransformerModel(ntokens, d_model, nhead, d_hid=d_model, nlayers=1, dropout=dropout).to("cpu")
+    model_standard = TransformerModel(ntokens, d_model, nhead, d_hid=d_model, nlayers=1, dropout=dropout, attention_module=nn.MultiheadAttention).to("cpu")
     val_loss = train_and_evaluate(model_standard, train_data, val_data, ntokens, bptt)
     print(f"Validation PPL: {math.exp(val_loss):.2f}")
     print("-" * 50)
 
-    # --- Ablation Studies ---
-    ablation_configs = [
-        {'use_neural_attention': True, 'use_rms_norm': True, 'use_adaptive_temperature': True},
-        {'use_neural_attention': False, 'use_rms_norm': True, 'use_adaptive_temperature': True},
-        {'use_neural_attention': True, 'use_rms_norm': False, 'use_adaptive_temperature': True},
-        {'use_neural_attention': True, 'use_rms_norm': True, 'use_adaptive_temperature': False},
-    ]
-
-    for config in ablation_configs:
-        print(f"\n--- Training Ablation Model: {config} ---")
-        model_ablation = TransformerModel(ntokens, d_model, nhead, d_hid=d_model, nlayers=1, dropout=dropout,
-                                          attention_module=AdvancedMuonAttention, attention_config=config).to("cpu")
-        val_loss = train_and_evaluate(model_ablation, train_data, val_data, ntokens, bptt)
-        print(f"Validation PPL: {math.exp(val_loss):.2f}")
-        print("-" * 50)
+    # --- Muon Optimizer Model ---
+    print("\n--- Training Muon Optimizer Transformer ---")
+    model_muon = TransformerModel(ntokens, d_model, nhead, d_hid=d_model, nlayers=1, dropout=dropout, attention_module=MuonOptimizerFixed).to("cpu")
+    val_loss = train_and_evaluate(model_muon, train_data, val_data, ntokens, bptt)
+    print(f"Validation PPL: {math.exp(val_loss):.2f}")
+    print("-" * 50)
 
 if __name__ == '__main__':
     main()

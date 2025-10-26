@@ -1,10 +1,10 @@
 
 import torch
-from advanced_muon_attention import AdvancedMuonAttention
+from muon_optimizer import MuonOptimizerFixed
 
 def main():
     """
-    Provides a simple example of how to use the AdvancedMuonAttention module.
+    Provides a simple example of how to use the MuonOptimizerFixed module.
     """
     # Parameters
     d_model = 128
@@ -13,7 +13,7 @@ def main():
     batch_size = 2
 
     # Create the model
-    model = AdvancedMuonAttention(d_model, num_heads)
+    model = MuonOptimizerFixed(d_model, num_heads)
 
     # Create some dummy data
     Q = torch.randn(batch_size, seq_length, d_model)
@@ -28,16 +28,9 @@ def main():
 
     # --- Example 2: Forward pass with causal masking ---
     print("--- Example 2: Forward pass with causal masking ---")
-    mask = torch.tril(torch.ones(seq_length, seq_length)).unsqueeze(0).unsqueeze(0)
+    mask = torch.tril(torch.ones(seq_length, seq_length)).bool()
     output_masked = model(Q, K, V, mask=mask)
     print("Output shape (masked):", output_masked.shape)
-    print("-" * 40)
-
-    # --- Example 3: Returning attention scores ---
-    print("--- Example 3: Returning attention scores ---")
-    output_with_attn, attn = model(Q, K, V, return_attention=True)
-    print("Output shape:", output_with_attn.shape)
-    print("Attention shape:", attn.shape)
     print("-" * 40)
 
 if __name__ == '__main__':
